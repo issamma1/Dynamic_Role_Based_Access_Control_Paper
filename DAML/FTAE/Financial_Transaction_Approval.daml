@@ -1,0 +1,617 @@
+module Financial_Transaction_Approval where
+import Daml.Script
+import DA.Assert
+import DA.List
+import DA.Set
+
+template FinancialManager_Role
+    with
+	    default_owner : Party
+	    owner : Party
+	    members : [Party]
+	    role_name : Text
+    where
+	    signatory default_owner
+	    observer owner
+
+	    choice SetNewOwner_FinancialManager_Role
+		    : ContractId FinancialManager_Role
+		    with
+			    newOwner : Party
+		    controller owner
+		    do
+			    assertMsg "newOwner cannot be equal to owner." (owner /= newOwner)
+			    create this with
+				    owner = newOwner
+
+	    choice SetMembers_FinancialManager_Role
+		    : ContractId FinancialManager_Role
+		    with
+			    newMembers : [Party]
+		    controller owner
+		    do
+			    create this with
+				    members = newMembers
+
+template FinancialManager_Role_Proposal
+	with
+		financialManager_Role : 	FinancialManager_Role
+	where
+		signatory financialManager_Role.default_owner
+		observer financialManager_Role.owner
+
+		choice FinancialManager_Role_Proposal_Accept
+			: ContractId FinancialManager_Role
+			controller financialManager_Role.owner
+			do
+				create financialManager_Role
+
+template Auditor_Role
+    with
+	    default_owner : Party
+	    owner : Party
+	    members : [Party]
+	    role_name : Text
+    where
+	    signatory default_owner
+	    observer owner
+
+	    choice SetNewOwner_Auditor_Role
+		    : ContractId Auditor_Role
+		    with
+			    newOwner : Party
+		    controller owner
+		    do
+			    assertMsg "newOwner cannot be equal to owner." (owner /= newOwner)
+			    create this with
+				    owner = newOwner
+
+	    choice SetMembers_Auditor_Role
+		    : ContractId Auditor_Role
+		    with
+			    newMembers : [Party]
+		    controller owner
+		    do
+			    create this with
+				    members = newMembers
+
+template Auditor_Role_Proposal
+	with
+		auditor_Role : 	Auditor_Role
+	where
+		signatory auditor_Role.default_owner
+		observer auditor_Role.owner
+
+		choice Auditor_Role_Proposal_Accept
+			: ContractId Auditor_Role
+			controller auditor_Role.owner
+			do
+				create auditor_Role
+                
+template Financial_Transaction_Approval
+	with
+		owner : Party
+		financialManagerRole: FinancialManager_Role
+		auditorRole: Auditor_Role
+		alice : Party
+		bob : Party
+		carol : Party
+		dave : Party
+		trans_data : Text
+	where
+		signatory owner
+		observer alice,bob,carol,dave,financialManagerRole.members,auditorRole.members
+
+		choice Approve_Transaction
+			: ContractId Financial_Transaction_Approval
+			with			
+				p1 : [Party]
+				new_trans_data : Text
+			controller alice,p1
+			do
+				let set1 = DA.Set.fromList p1
+				let set2 = DA.Set.fromList ( auditorRole.members)
+				assert  (bob `elem` p1  || (DA.Set.isSubsetOf set1 set2 && DA.Set.size set1 >= 2))
+
+				create this with
+					trans_data = new_trans_data
+
+		choice Verify_Transaction
+			: ContractId Financial_Transaction_Approval
+			with			
+				financialManager : Party
+				p1 : [Party]
+				new_trans_data : Text
+			controller financialManager,carol,p1
+			do
+				assert (financialManager `elem` financialManagerRole.members)
+				assert (financialManager /= carol)
+				let set1 = DA.Set.fromList p1
+				let set2 = DA.Set.fromList ( auditorRole.members)
+				assert  (dave `elem` p1  || (DA.Set.isSubsetOf set1 set2 && DA.Set.size set1 >= 2))
+
+				create this with
+					trans_data = new_trans_data
+
+		choice Finalize_Transaction
+			: ContractId Financial_Transaction_Approval
+			with			
+				financialManager : Party
+				auditor : [Party]
+				p1 : Party
+				new_trans_data : Text
+			controller financialManager,p1,auditor
+			do
+				assert (financialManager `elem` financialManagerRole.members)
+				let set1 = DA.Set.fromList auditor
+				let set2 = DA.Set.fromList (auditorRole.members++[financialManager,p1])
+				assert (DA.Set.isSubsetOf set1 set2 && DA.Set.size set1 >= 2)
+				assert (unique (auditorRole.members++[financialManager,p1]))
+				assert (p1 `elem` ([dave,bob]))
+
+				create this with
+					trans_data = new_trans_data
+
+template Approve_Transaction_Pending
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+	p1 : Party
+  where
+	signatory alreadySigned
+	observer  [finalContract.alice]++[p1]
+	ensure
+	  unique alreadySigned
+
+	let toSign = DA.List.filter (`notElem` alreadySigned) [finalContract.alice]++[p1]
+
+	choice Sign_Approve_Transaction_Pending: ContractId Approve_Transaction_Pending with
+		signer : Party
+	  controller signer
+		do
+		  assert (signer `elem` toSign)
+		  create this with alreadySigned = signer :: alreadySigned
+
+	choice Finalize_Approve_Transaction_Pending : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+		do
+		  -- Check that all the required signatories have signed Pending
+		  assert (sort alreadySigned == sort [finalContract.alice]++[p1])
+		  exercise ghcId Approve_Transaction with
+		  			p1 = alreadySigned
+					new_trans_data = trans_data
+
+template Auditor_Pending_Approve_Transaction_Pending
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+  where
+	signatory alreadySigned
+	observer finalContract.auditorRole.members
+	ensure
+	  unique alreadySigned
+
+	let toSign = DA.List.filter (`notElem` alreadySigned) finalContract.auditorRole.members
+
+	choice Sign_Auditor_Approve_Transaction_Pending : ContractId Auditor_Pending_Approve_Transaction_Pending with
+		signer : Party
+	  controller signer
+		do
+		  assert (signer `elem` toSign)
+		  create this with alreadySigned = signer :: alreadySigned
+
+	choice Finalize_Auditor_Approve_Transaction_Pending : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+		do
+		  -- Check that all the required signatories have signed Pending
+		  let set1 = DA.Set.fromList alreadySigned
+		  let set2_1 = DA.Set.fromList (finalContract.auditorRole.members) 
+		  assert (DA.Set.isSubsetOf set1 set2_1)
+		  assert (DA.List.length alreadySigned >= 2)
+
+		  exercise ghcId Approve_Transaction with
+		  			p1 = alreadySigned
+					new_trans_data = trans_data
+
+template Verify_Transaction_Pending
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+	financialManager : Party
+	p1 : Party
+  where
+	signatory alreadySigned
+	observer  [finalContract.carol] ++ finalContract.financialManagerRole.members++[p1]
+	ensure
+	  unique alreadySigned
+
+	let toSign = DA.List.filter (`notElem` alreadySigned) [finalContract.carol,financialManager]++[p1]
+
+	choice Sign_Verify_Transaction_Pending : ContractId Verify_Transaction_Pending 
+		with
+			signer : Party
+	  	controller signer
+		do
+		  assert (signer `elem` toSign)
+		  create this with alreadySigned = signer :: alreadySigned
+
+	choice Finalize_Verify_Transaction_Pending : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+		do
+		  -- Check that all the required signatories have signed Pending
+		  assert (sort alreadySigned == sort [finalContract.carol,financialManager]++[p1])
+		  exercise ghcId Verify_Transaction with
+		  			financialManager = financialManager
+					p1 = alreadySigned
+					new_trans_data = trans_data
+
+template Auditor_Pending_Verify_Transaction
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+  where
+	signatory alreadySigned
+	observer finalContract.auditorRole.members
+	ensure
+	  unique alreadySigned
+
+	let toSign = DA.List.filter (`notElem` alreadySigned) finalContract.auditorRole.members
+
+	choice Sign_Auditor : ContractId Auditor_Pending_Verify_Transaction with
+		signer : Party
+	  controller signer
+		do
+		  assert (signer `elem` toSign)
+		  create this with alreadySigned = signer :: alreadySigned
+
+	choice Finalize_Auditor : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+		do
+		  -- Check that all the required signatories have signed Pending
+		  let set1 = DA.Set.fromList alreadySigned
+		  let set2_1 = DA.Set.fromList (finalContract.auditorRole.members) 
+		  assert (DA.Set.isSubsetOf set1 set2_1)
+		  assert (DA.List.length alreadySigned >= 2)
+
+		  exercise ghcId Verify_Transaction with
+					financialManager = signer
+					p1 = alreadySigned
+					new_trans_data = trans_data
+
+template Finalize_Transaction_Pending
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+	financialManager : Party
+	p1 : Party
+  where
+	signatory alreadySigned
+	observer  finalContract.auditorRole.members++[] ++ finalContract.financialManagerRole.members++[p1]
+	ensure
+	  unique alreadySigned
+
+	let toSign = DA.List.filter (`notElem` alreadySigned) finalContract.auditorRole.members++[financialManager]++[p1]
+
+	choice Sign_Finalize_Transaction_Pending : ContractId Finalize_Transaction_Pending with
+		signer : Party
+	  controller signer
+		do
+		  assert (signer `elem` toSign)
+		  create this with alreadySigned = signer :: alreadySigned
+
+	choice Finalize_Finalize_Transaction_Pending : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+		do
+		  -- Check that all the required signatories have signed Pending
+		  let set1 = DA.Set.fromList alreadySigned
+		  let set2_1 = DA.Set.fromList (finalContract.auditorRole.members ++[financialManager]++[p1])
+		  assert (DA.Set.isSubsetOf set1 set2_1)
+		  assert (DA.List.length alreadySigned >= 2)
+		  assert (sort (DA.List.filter (`notElem` finalContract.auditorRole.members) alreadySigned) == sort [financialManager]++[p1])
+		  exercise ghcId Finalize_Transaction with
+					financialManager = financialManager
+					p1 = p1
+					auditor = alreadySigned
+					new_trans_data = trans_data
+
+
+-- Attempt Templats (Used for Testing)					
+template Approve_Transaction_Attempt
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+	p1 : [Party]
+  where
+    signatory alreadySigned
+    observer  p1
+    ensure
+      unique alreadySigned
+
+    
+    choice Sign_Approve_Transaction_Attempt: ContractId Approve_Transaction_Attempt with
+        signer : Party
+      controller signer
+        do
+          create this with alreadySigned = signer :: alreadySigned
+
+    choice Finalize_Approve_Transaction_Attempt : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+        do
+          -- Check that all the required signatories have signed Pending
+          exercise ghcId Approve_Transaction with
+		  		p1 = p1
+				new_trans_data = trans_data
+
+template Verify_Transaction_Attempt
+  with
+	finalContract: Financial_Transaction_Approval
+	alreadySigned: [Party]
+	financialManager : Party
+	p1 : [Party]
+  where
+    signatory alreadySigned
+    observer  p1
+    ensure
+      unique alreadySigned
+
+    
+    choice Sign_Verify_Transaction_Attempt: ContractId Verify_Transaction_Attempt with
+        signer : Party
+      controller signer
+        do
+          create this with alreadySigned = signer :: alreadySigned
+
+    choice Finalize_Verify_Transaction_Attempt : ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+        do
+          -- Check that all the required signatories have signed Pending
+          exercise ghcId Verify_Transaction with
+		  		financialManager = financialManager
+				p1 = alreadySigned
+				new_trans_data = trans_data
+
+template Finalize_Transaction_Attempt
+  with
+	finalContract: Financial_Transaction_Approval
+	financialManager : Party
+	auditor : [Party]
+	p1 : Party
+	alreadySigned: [Party]
+  where
+    signatory alreadySigned
+    observer  p1, financialManager, auditor
+    ensure
+      unique alreadySigned
+
+    
+    choice Sign_Finalize_Transaction_Attempt: ContractId Finalize_Transaction_Attempt with
+        signer : Party
+      controller signer
+        do
+          create this with alreadySigned = signer :: alreadySigned
+
+    choice Finalize_Finalize_Transaction_Attempt: ContractId Financial_Transaction_Approval with
+			signer : Party
+			trans_data : Text
+			ghcId: ContractId Financial_Transaction_Approval
+		controller signer
+        do
+          -- Check that all the required signatories have signed Pending
+	  		exercise ghcId Finalize_Transaction with
+				financialManager = financialManager
+				p1 = p1
+				auditor = auditor
+				new_trans_data = trans_data
+
+token_test : Script ()
+token_test = do
+
+	account0 <- allocateParty "Account0" -- Owner
+	account1 <- allocateParty "Account1" -- Alice
+	account2 <- allocateParty "Account2" -- Bob
+	account3 <- allocateParty "Account3" -- Carol
+	account4 <- allocateParty "Account4" -- Dave
+	account5 <- allocateParty "Account5" -- Emma
+
+
+	financialManager_Role_Proposal <- submit account1 do
+		createCmd FinancialManager_Role_Proposal with
+			financialManager_Role = FinancialManager_Role with
+				default_owner = account1
+				owner = account1
+				members = [account1, account2]
+				role_name = "Financial Manager"
+
+	
+	financialManager_Role_id <- submit account1 do
+		exerciseCmd financialManager_Role_Proposal FinancialManager_Role_Proposal_Accept
+
+	Some financialManager_Role <- queryContractId account1 financialManager_Role_id
+
+
+	auditor_Role_Proposal <- submit account3 do
+		createCmd Auditor_Role_Proposal with
+			auditor_Role = Auditor_Role with
+				default_owner = account3
+				owner = account3
+				members = [account3, account4]
+				role_name = "Auditor"
+
+	auditor_Role_id <- submit account3 do
+		exerciseCmd auditor_Role_Proposal Auditor_Role_Proposal_Accept
+
+	Some auditor_Role <- queryContractId account3 auditor_Role_id
+
+	newContractid <- submit account0 do
+		createCmd Financial_Transaction_Approval with
+			owner = account0
+			financialManagerRole = financialManager_Role
+			auditorRole = auditor_Role
+			alice = account1
+			bob = account2
+			carol = account3
+			dave = account4
+			trans_data = "Comments Version 1.0"
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- Approve Transaction Example
+	pending <- submit account1 do
+		createCmd Approve_Transaction_Pending with
+			finalContract = newCrontact
+			alreadySigned = [account1]
+			p1 = account2
+	
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Approve_Transaction_Pending with
+			signer = account2
+
+	newContractid <- submit account2 do
+		exerciseCmd pending Finalize_Approve_Transaction_Pending with
+			signer = account2
+			trans_data = "Comments Version 2.0 Approve Transaction Executed"
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- Verify Transaction Example
+	pending <- submit account3 do
+		createCmd Verify_Transaction_Pending with
+			finalContract = newCrontact
+			alreadySigned = [account3]
+			financialManager = account1
+			p1 = account4
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Verify_Transaction_Pending with
+			signer = account1
+
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Verify_Transaction_Pending with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Verify_Transaction_Pending with
+			signer = account4
+			trans_data = "Comments Version 3.0 Verify Transaction Executed"
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- Finalize Transaction Example
+	pending <- submit account1 do
+		createCmd Finalize_Transaction_Pending with
+			finalContract= newCrontact
+			alreadySigned = [account1]
+			financialManager = account1
+			p1 = account2
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Pending with
+			signer = account2
+	 
+	newContractid <- submit account2 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Pending with
+			signer = account2
+			trans_data = "Comments Version 4.0 Finalize Transaction Executed"
+			ghcId = newContractid
+
+	-- TEST CASES
+	-- Test Approve Transaction - by Alice, Carol, and Dave
+	pending <- submit account1 do
+		createCmd Approve_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			p1 = [account3, account4]
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Approve_Transaction_Attempt with
+			signer = account3
+
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Approve_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Approve_Transaction_Attempt with
+			signer = account4
+			trans_data = "Test Case 1 - Pass - Approve_Transaction "
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- Test Verify Transaction - by Alice and Dave
+	pending <- submit account1 do
+		createCmd Verify_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			financialManager = account1
+			p1 = [account3, account4]
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account3
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Verify_Transaction_Attempt with
+			signer = account4
+			trans_data = "Test Case 2 - Pass - Verify_Transaction "
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- Test Finalize Transaction - by Alice, Bob, Carol, and Dave
+	pending <- submit account1 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			financialManager = account1
+			auditor = [account3, account4]
+			p1 = account2
+			alreadySigned = [account1]
+	
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account4
+			trans_data = "Test Case 3 - Pass - Finalize _Transaction"
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+	
+	assert (True)		

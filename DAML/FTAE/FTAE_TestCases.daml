@@ -1,0 +1,247 @@
+module FTAE_TestCases where
+import Daml.Script
+import DA.Assert
+import DA.List
+import DA.Set
+import Financial_Transaction_Approval
+
+run_tests : Script ()
+run_tests = do
+	account0 <- allocateParty "Account0" -- Owner
+	account1 <- allocateParty "Account1" -- Alice
+	account2 <- allocateParty "Account2" -- Bob
+	account3 <- allocateParty "Account3" -- Carol
+	account4 <- allocateParty "Account4" -- Dave
+	account5 <- allocateParty "Account5" -- Emma
+	
+	financialManager_Role_Proposal <- submit account1 do
+		createCmd FinancialManager_Role_Proposal with
+			financialManager_Role = FinancialManager_Role with
+				default_owner = account1
+				owner = account1
+				members = [account1, account2]
+				role_name = "Financial Manager"
+
+	
+	financialManager_Role_id <- submit account1 do
+		exerciseCmd financialManager_Role_Proposal FinancialManager_Role_Proposal_Accept
+
+	Some financialManager_Role <- queryContractId account1 financialManager_Role_id
+
+
+	auditor_Role_Proposal <- submit account3 do
+		createCmd Auditor_Role_Proposal with
+			auditor_Role = Auditor_Role with
+				default_owner = account3
+				owner = account3
+				members = [account3, account4]
+				role_name = "Auditor"
+
+	auditor_Role_id <- submit account3 do
+		exerciseCmd auditor_Role_Proposal Auditor_Role_Proposal_Accept
+
+	Some auditor_Role <- queryContractId account3 auditor_Role_id
+
+	newContractid <- submit account0 do
+		createCmd Financial_Transaction_Approval with
+			owner = account0
+			financialManagerRole = financialManager_Role
+			auditorRole = auditor_Role
+			alice = account1
+			bob = account2
+			carol = account3
+			dave = account4
+			trans_data = "Comments Version 1.0"
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+ 	-- TC_A_1 Approve, Alice and Bob
+	pending <- submit account1 do
+		createCmd Approve_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			p1 = [account2]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Approve_Transaction_Attempt with
+			signer = account2
+
+	newContractid <- submit account2 do
+		exerciseCmd pending Finalize_Approve_Transaction_Attempt with
+			signer = account2
+			trans_data = "TC_A_1 Approve, passed "
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+	
+
+	-- TC_A_2 Approve Alice, Carol, and Dave
+	pending <- submit account1 do
+		createCmd Approve_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			p1 = [account3, account4]
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Approve_Transaction_Attempt with
+			signer = account3
+
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Approve_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Approve_Transaction_Attempt with
+			signer = account4
+			trans_data = "TC_A_2 Approve, passed "
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid	
+
+	-- TC_A_3 Verify Alice, Carol, and Dave
+	pending <- submit account1 do
+		createCmd Verify_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			financialManager = account1
+			p1 = [account3, account4]
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account3
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Verify_Transaction_Attempt with
+			signer = account4
+			trans_data = "TC_A_3 Verify, passed"
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid	
+
+	-- TC_A_4 Verify Bob, Carol, and Dave
+	pending <- submit account2 do
+		createCmd Verify_Transaction_Attempt with
+			alreadySigned =  [account2]
+			finalContract = newCrontact
+			financialManager = account2
+			p1 = [account3, account4]
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account3
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Verify_Transaction_Attempt with
+			signer = account4
+			trans_data = "TC_A_4 Verify, passed"
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- TC_A_5 Finalize Alice, Bob, Carol, and Dave
+	pending <- submit account1 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			financialManager = account1
+			auditor = [account3, account4]
+			p1 = account2
+			alreadySigned = [account1]
+	
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account4
+
+	newContractid <- submit account4 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account4
+			trans_data = "TC_A_5 Finalize, passed"
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+
+ 	-- TC_R_1 Approve, Alice and Carol
+	pending <- submit account1 do
+		createCmd Approve_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			p1 = [account3]
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Approve_Transaction_Attempt with
+			signer = account3
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Approve_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- TC_R_3 Verify Alice, Bob, and Dave
+	pending <- submit account1 do
+		createCmd Verify_Transaction_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			financialManager = account1
+			p1 = [account2, account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account2
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Verify_Transaction_Attempt with
+			signer = account4
+
+	submitMustFail account4 do
+		exerciseCmd pending Finalize_Verify_Transaction_Attempt with
+			signer = account4
+			trans_data = ""
+			ghcId = newContractid
+
+	Some newCrontact <- queryContractId account0 newContractid	
+
+	-- TC_R_1 Finalize Bob, Carol, and Dave
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			financialManager = account2
+			auditor = [account3, account4]
+			p1 = account2
+			alreadySigned = [account2]
+	
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3
+	
+	pending <- submit account4 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account4
+
+	submitMustFail account4 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account4
+			trans_data = ""
+			ghcId = newContractid
+
+
+	assert (True)

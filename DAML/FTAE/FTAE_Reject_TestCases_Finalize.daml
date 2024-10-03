@@ -1,0 +1,614 @@
+module FTAE_Reject_TestCases_Finalize where
+import Daml.Script
+import DA.Assert
+import DA.List
+import DA.Set
+import Financial_Transaction_Approval
+
+run_tests : Script ()
+run_tests = do
+	account0 <- allocateParty "Account0" -- Owner
+	account1 <- allocateParty "Account1" -- Alice
+	account2 <- allocateParty "Account2" -- Bob
+	account3 <- allocateParty "Account3" -- Carol
+	account4 <- allocateParty "Account4" -- Dave
+	account5 <- allocateParty "Account5" -- Emma
+	
+	financialManager_Role_Proposal <- submit account1 do
+		createCmd FinancialManager_Role_Proposal with
+			financialManager_Role = FinancialManager_Role with
+				default_owner = account1
+				owner = account1
+				members = [account1, account2]
+				role_name = "Financial Manager"
+
+	
+	financialManager_Role_id <- submit account1 do
+		exerciseCmd financialManager_Role_Proposal FinancialManager_Role_Proposal_Accept
+
+	Some financialManager_Role <- queryContractId account1 financialManager_Role_id
+
+
+	auditor_Role_Proposal <- submit account3 do
+		createCmd Auditor_Role_Proposal with
+			auditor_Role = Auditor_Role with
+				default_owner = account3
+				owner = account3
+				members = [account3, account4]
+				role_name = "Auditor"
+
+	auditor_Role_id <- submit account3 do
+		exerciseCmd auditor_Role_Proposal Auditor_Role_Proposal_Accept
+
+	Some auditor_Role <- queryContractId account3 auditor_Role_id
+	
+	newContractid <- submit account0 do
+		createCmd Financial_Transaction_Approval with
+			owner = account0
+			financialManagerRole = financialManager_Role
+			auditorRole = auditor_Role
+			alice = account1
+			bob = account2
+			carol = account3
+			dave = account4
+			trans_data = "Comments Version 1.0"
+			
+	Some newCrontact <- queryContractId account0 newContractid
+
+
+	--- TEST CASE
+
+	---TC_252_Finalize, authorized by account4, account2, account1
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account1
+			financialManager = account2
+			auditor = [account4]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account1
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_303_Finalize, authorized by account2, account1, account3
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account1
+			financialManager = account2
+			auditor = [account3]
+			alreadySigned = [account2]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_494_Finalize, authorized by account4, account1, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account1
+			financialManager = account3
+			auditor = [account4]
+			alreadySigned = [account4]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_511_Finalize, authorized by account2, account1, account3
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account1
+			financialManager = account3
+			auditor = [account2]
+			alreadySigned = [account2]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_748_Finalize, authorized by account4, account2, account1
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account1
+			financialManager = account4
+			auditor = [account2]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account1
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_782_Finalize, authorized by account4, account1, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account1
+			financialManager = account4
+			auditor = [account3]
+			alreadySigned = [account4]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_972_Finalize, authorized by account4, account2, account1
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account2
+			financialManager = account1
+			auditor = [account4]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account1
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1023_Finalize, authorized by account2, account1, account3
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account2
+			financialManager = account1
+			auditor = [account3]
+			alreadySigned = [account2]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1453_Finalize, authorized by account4, account2, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account2
+			financialManager = account3
+			auditor = [account4]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1487_Finalize, authorized by account2, account1, account3
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account2
+			financialManager = account3
+			auditor = [account1]
+			alreadySigned = [account2]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1724_Finalize, authorized by account4, account2, account1
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account2
+			financialManager = account4
+			auditor = [account1]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account1
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1741_Finalize, authorized by account4, account2, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account2
+			financialManager = account4
+			auditor = [account3]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1934_Finalize, authorized by account4, account1, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account3
+			financialManager = account1
+			auditor = [account4]
+			alreadySigned = [account4]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_1951_Finalize, authorized by account2, account1, account3
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account3
+			financialManager = account1
+			auditor = [account2]
+			alreadySigned = [account2]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_2173_Finalize, authorized by account4, account2, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account3
+			financialManager = account2
+			auditor = [account4]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_2207_Finalize, authorized by account2, account1, account3
+	pending <- submit account2 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account3
+			financialManager = account2
+			auditor = [account1]
+			alreadySigned = [account2]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_2669_Finalize, authorized by account4, account2, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account3
+			financialManager = account4
+			auditor = [account2]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_2686_Finalize, authorized by account4, account1, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account3
+			financialManager = account4
+			auditor = [account1]
+			alreadySigned = [account4]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_2908_Finalize, authorized by account4, account2, account1
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account4
+			financialManager = account1
+			auditor = [account2]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account1
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_2942_Finalize, authorized by account4, account1, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account4
+			financialManager = account1
+			auditor = [account3]
+			alreadySigned = [account4]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_3164_Finalize, authorized by account4, account2, account1
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account4
+			financialManager = account2
+			auditor = [account1]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account1
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_3181_Finalize, authorized by account4, account2, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account4
+			financialManager = account2
+			auditor = [account3]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_3389_Finalize, authorized by account4, account2, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account4
+			financialManager = account3
+			auditor = [account2]
+			alreadySigned = [account4]
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account2 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+	---TC_3406_Finalize, authorized by account4, account1, account3
+	pending <- submit account4 do
+		createCmd Finalize_Transaction_Attempt with
+			finalContract = newCrontact
+			p1 = account4
+			financialManager = account3
+			auditor = [account1]
+			alreadySigned = [account4]
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account1 
+
+	pending <- submit account3 do
+		exerciseCmd pending Sign_Finalize_Transaction_Attempt with
+			signer = account3 
+
+	submitMustFail account3 do
+		exerciseCmd pending Finalize_Finalize_Transaction_Attempt with
+			signer = account3
+			trans_data = ""
+			ghcId = newContractid
+
+
+	assert (True)	

@@ -1,0 +1,483 @@
+module Mut6 where
+import Daml.Script
+import DA.Assert
+import DA.List
+import DA.Set
+
+template HWSubmitter_Role
+	with
+		default_owner : Party
+		owner : Party
+		members : [Party]
+		-- role_name : Text
+	where
+		signatory default_owner
+		observer owner
+
+		choice SetNewOwner_HWSubmitter_Role
+			: ContractId HWSubmitter_Role
+			with
+				newOwner : Party
+			controller owner
+			do
+				assertMsg "newOwner cannot be equal to owner." (owner /= newOwner)
+				create this with
+					owner = newOwner
+
+		choice SetMembers_HWSubmitter_Role
+			: ContractId HWSubmitter_Role
+			with
+				newMembers : [Party]
+			controller owner
+			do
+				create this with
+					members = newMembers
+		
+
+template HWSubmitter_Role_Proposal
+	with
+		hWSubmitter_Role : 	HWSubmitter_Role
+	where
+		signatory hWSubmitter_Role.default_owner
+		observer hWSubmitter_Role.owner
+
+		choice HWSubmitter_Role_Proposal_Accept
+			: ContractId HWSubmitter_Role
+			controller hWSubmitter_Role.owner
+			do
+				create hWSubmitter_Role
+
+template HWEvaluator_Role
+	with
+		default_owner : Party
+		owner : Party
+		members : [Party]
+		-- role_name : Text
+	where
+		signatory default_owner
+		observer owner
+
+		choice SetNewOwner_HWEvaluator_Role
+			: ContractId HWEvaluator_Role
+			with
+				newOwner : Party
+			controller owner
+			do
+				assertMsg "newOwner cannot be equal to owner." (owner /= newOwner)
+				create this with
+					owner = newOwner
+
+		choice SetMembers_HWEvaluator_Role
+			: ContractId HWEvaluator_Role
+			with
+				newMembers : [Party]
+			controller owner
+			do
+				create this with
+					members = newMembers
+		
+
+template HWEvaluator_Role_Proposal
+	with
+		hWEvaluator_Role : 	HWEvaluator_Role
+	where
+		signatory hWEvaluator_Role.default_owner
+		observer hWEvaluator_Role.owner
+
+		choice HWEvaluator_Role_Proposal_Accept
+			: ContractId HWEvaluator_Role
+			controller hWEvaluator_Role.owner
+			do
+				create hWEvaluator_Role						
+
+template Homework_Grading
+	with
+		owner : Party
+		hWSubmitterRole: HWSubmitter_Role
+		hWEvaluatorRole: HWEvaluator_Role
+		alice : Party
+		bob : Party
+		chris : Party
+		doug : Party
+		emma : Party
+		comments : Text
+	where
+		signatory owner
+		observer alice,bob,chris,doug,emma,hWSubmitterRole.members,hWEvaluatorRole.members
+
+		choice SubmitHW  
+			: ContractId Homework_Grading
+			with			
+				p1 : Party
+				p2 : Party
+				new_comments : Text
+			controller p1,p2
+			do
+				let set1 = DA.Set.fromList ( hWSubmitterRole.members)
+				let set2 = DA.Set.fromList ( hWEvaluatorRole.members)
+				assert (p1 `elem` hWSubmitterRole.members)
+				assert (p2 `elem` hWEvaluatorRole.members)
+				assert (not (p1 == p2))
+				create this with
+					comments = new_comments
+
+		choice GradeHW
+			: ContractId Homework_Grading
+			with			
+				p1 : [Party]
+				new_comments : Text
+			controller alice,p1
+			do
+				let set1 = DA.Set.difference (DA.Set.fromList p1)(DA.Set.fromList [alice])
+				let set2 = DA.Set.fromList ( hWEvaluatorRole.members)
+				assert  (bob `elem` p1  || (DA.Set.isSubsetOf set1 set2 && DA.Set.size set1 >= 2))
+				create this with
+					comments = new_comments
+
+
+
+template GradeHW_Pending
+  with
+	finalContract: Homework_Grading
+	alreadySigned: [Party]
+	p1 : Party
+  where
+    signatory alreadySigned
+    observer  [finalContract.alice]++[p1]
+    ensure
+      unique alreadySigned
+
+    let toSign = DA.List.filter (`notElem` alreadySigned) [finalContract.alice]++[p1]
+
+    choice Sign : ContractId GradeHW_Pending with
+        signer : Party
+      controller signer
+        do
+          assert (signer `elem` toSign)
+          create this with alreadySigned = signer :: alreadySigned
+
+    choice Finalize : ContractId Homework_Grading with
+			signer : Party
+			comments : Text
+			ghcId: ContractId Homework_Grading
+		controller signer
+        do
+          -- Check that all the required signatories have signed Pending
+          assert (sort alreadySigned == sort [finalContract.alice]++[p1])
+          exercise ghcId GradeHW with
+		  		p1 = [p1]
+				new_comments = comments
+
+
+template HWEvaluator_Pending
+  with
+	finalContract: Homework_Grading
+	alreadySigned: [Party]
+  where
+    signatory alreadySigned
+    observer finalContract.hWEvaluatorRole.members
+    ensure
+      unique alreadySigned
+
+    let toSign = DA.List.filter (`notElem` alreadySigned) finalContract.hWEvaluatorRole.members
+
+    choice Sign_HWEvaluator : ContractId HWEvaluator_Pending with
+        signer : Party
+      controller signer
+        do
+          assert (signer `elem` toSign)
+          create this with alreadySigned = signer :: alreadySigned
+
+    choice Finalize_HWEvaluator : ContractId Homework_Grading with
+			signer : Party
+			comments : Text
+			ghcId: ContractId Homework_Grading
+		controller signer
+        do
+          -- Check that all the required signatories have signed Pending
+		  let set1 = DA.Set.fromList alreadySigned
+		  let set2_1 = DA.Set.fromList (finalContract.hWEvaluatorRole.members) 
+		  assert (DA.Set.isSubsetOf set1 set2_1)
+		  assert (DA.List.length alreadySigned >= 2)
+
+		  exercise ghcId GradeHW with
+		  	p1 = alreadySigned
+			new_comments = comments
+
+template GradeHW_Attempt
+  with
+	finalContract: Homework_Grading
+	alreadySigned: [Party]
+	p1 : [Party]
+  where
+    signatory alreadySigned
+    observer  p1
+    ensure
+      unique alreadySigned
+
+    
+    choice Sign_GradeHW_Attempt : ContractId GradeHW_Attempt with
+        signer : Party
+      controller signer
+        do
+          create this with alreadySigned = signer :: alreadySigned
+
+    choice Finalize_GradeHW_Attempt : ContractId Homework_Grading with
+			signer : Party
+			comments : Text
+			ghcId: ContractId Homework_Grading
+		controller signer
+        do
+          -- Check that all the required signatories have signed Pending
+          exercise ghcId GradeHW with
+		  		p1 = p1
+				new_comments = comments
+
+
+token_test : Script ()
+token_test = do
+
+	account0 <- allocateParty "Account0" -- Owner
+	account1 <- allocateParty "Account1" -- Alice
+	account2 <- allocateParty "Account2" -- Bob
+	account3 <- allocateParty "Account3" -- Chris
+	account4 <- allocateParty "Account4" -- Doug
+	account5 <- allocateParty "Account5" -- Emma
+	account6 <- allocateParty "Account6" -- Frank
+	
+	hWSubmitter_Role_Proposal <- submit account0 do
+	 createCmd HWSubmitter_Role_Proposal with
+		hWSubmitter_Role = HWSubmitter_Role with
+			default_owner = account0
+			owner = account3
+			members = [account1,account3]
+			
+	hWSubmitter_role_id <- submit account3 do
+  		exerciseCmd hWSubmitter_Role_Proposal HWSubmitter_Role_Proposal_Accept
+		
+	Some hWSubmitter_role <- queryContractId account0 hWSubmitter_role_id
+	
+	hWEvaluator_Role_Proposal <- submit account0 do
+	 createCmd HWEvaluator_Role_Proposal with
+		hWEvaluator_Role = HWEvaluator_Role with
+			default_owner = account0
+			owner = account1
+			members = [account1,account4,account5]
+	
+	hWEvaluator_role_id <- submit account1 do
+		exerciseCmd hWEvaluator_Role_Proposal HWEvaluator_Role_Proposal_Accept
+
+	Some hWEvaluator_role <- queryContractId account0 hWEvaluator_role_id
+
+	newContractid <- submit account0 do
+		createCmd Homework_Grading with
+			owner = account0
+			hWSubmitterRole = hWSubmitter_role
+			hWEvaluatorRole = hWEvaluator_role
+			alice = account1
+			bob = account2
+			chris = account3
+			doug = account4
+			emma = account5
+			comments = "Comments Version 1.0"
+
+	-- 2 SubmitHW, Chris
+	newContractid <- submit account3 do
+		exerciseCmd newContractid SubmitHW with
+			p1 = account3
+			p2 = account3
+			new_comments = "Comments Version 2.0"
+
+	Some newCrontact <- queryContractId account0 newContractid
+
+	-- 3 SubmitHW, Alice
+	newContractid <- submit account1 do
+		exerciseCmd newContractid SubmitHW with
+			p1 = account1
+			p2 = account1
+			new_comments = "Comments Version 3.0"
+
+	Some newCrontact <- queryContractId account0 newContractid
+	
+	-- 4 GradeHW, Alice and Bob
+	pending <- submit account1 do
+		createCmd GradeHW_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			p1 = [account1,account2]
+
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_GradeHW_Attempt with
+			signer = account2
+
+
+	newContractid <- submit account2 do
+		exerciseCmd pending Finalize_GradeHW_Attempt with
+			signer = account2
+			comments = "Comments Version 4.0"
+			ghcId = newContractid
+
+	-- 5 GradeHW, Alice, Doug, and Emma
+	pending <- submit account1 do
+		createCmd GradeHW_Attempt with
+			alreadySigned =  [account1]
+			finalContract = newCrontact
+			p1 = [account1,account4,account5]
+
+
+	pending <- submit account4 do
+		exerciseCmd pending Sign_GradeHW_Attempt with
+			signer = account4
+
+
+	newContractid <- submit account5 do
+		exerciseCmd pending Finalize_GradeHW_Attempt with
+			signer = account5
+			comments = "Comments Version 5.0"
+			ghcId = newContractid
+
+	-- 6 SubmitHW, Doug
+	submitMustFail account4 do
+		exerciseCmd newContractid SubmitHW with
+			p1 = account4
+			p2 = account4
+			new_comments = "Comments Version X.0"
+
+	-- 7 SubmitHW, Emma
+	submitMustFail account5 do
+		exerciseCmd newContractid SubmitHW with
+			p1 = account5
+			p2 = account5
+			new_comments = "Comments Version X.0"
+
+	-- 8 SubmitHW, Bob
+	submitMustFail account2 do
+		exerciseCmd newContractid SubmitHW with
+			p1 = account2
+			p2 = account2
+			new_comments = "Comments Version X.0"	
+
+	-- 9 SubmitHW, Frank
+	submitMustFail account6 do
+		exerciseCmd newContractid SubmitHW with
+			p1 = account6
+			p2 = account6
+			new_comments = "Comments Version X.0"
+
+	-- 10 GradeHW, Chris
+	submitMustFail account3 do
+		exerciseCmd newContractid GradeHW with
+			p1 = [account3]
+			new_comments = "Comments Version X.0"	
+
+	-- 11 GradeHW, Alice
+	submitMustFail account1 do
+		exerciseCmd newContractid GradeHW with
+			p1 = [account1]
+			new_comments = "Comments Version X.0"
+
+	-- 12 GradeHW, Bob
+	submitMustFail account2 do
+		exerciseCmd newContractid GradeHW with
+			p1 = [account2]
+			new_comments = "Comments Version X.0"
+
+	-- 13 GradeHW, Doug
+	submitMustFail account4 do
+		exerciseCmd newContractid GradeHW with
+			p1 = [account4]
+			new_comments = "Comments Version X.0"
+
+	-- 14 GradeHW, Emma
+	submitMustFail account5 do
+		exerciseCmd newContractid GradeHW with
+			p1 = [account5]
+			new_comments = "Comments Version X.0"
+
+	-- 15 GradeHW, Doug and Emma
+	pending <- submit account4 do
+		createCmd GradeHW_Attempt with
+			alreadySigned =  [account4]
+			finalContract = newCrontact
+			p1 = [account4,account5]
+
+
+	pending <- submit account5 do
+		exerciseCmd pending Sign_GradeHW_Attempt with
+			signer = account5
+
+
+	submitMustFail account5 do
+		exerciseCmd pending Finalize_GradeHW_Attempt with
+			signer = account5
+			comments = "Comments Version X.0"
+			ghcId = newContractid
+
+	-- 16 GradeHW, Doug and Bob
+	pending <- submit account4 do
+		createCmd GradeHW_Attempt with
+			alreadySigned =  [account4]
+			finalContract = newCrontact
+			p1 = [account4,account2]
+
+
+	pending <- submit account2 do
+		exerciseCmd pending Sign_GradeHW_Attempt with
+			signer = account2
+
+
+	submitMustFail account2 do
+		exerciseCmd pending Finalize_GradeHW_Attempt with
+			signer = account2
+			comments = "Comments Version X.0"
+			ghcId = newContractid
+
+	-- 17 GradeHW, Doug and Alice
+	pending <- submit account4 do
+		createCmd GradeHW_Attempt with
+			alreadySigned =  [account4]
+			finalContract = newCrontact
+			p1 = [account4,account1]
+
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_GradeHW_Attempt with
+			signer = account1
+
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_GradeHW_Attempt with
+			signer = account1
+			comments = "Comments Version X.0"
+			ghcId = newContractid
+
+	-- 18 GradeHW, Emma and Alice
+	pending <- submit account5 do
+		createCmd GradeHW_Attempt with
+			alreadySigned =  [account5]
+			finalContract = newCrontact
+			p1 = [account5,account1]
+
+
+	pending <- submit account1 do
+		exerciseCmd pending Sign_GradeHW_Attempt with
+			signer = account1
+
+
+	submitMustFail account1 do
+		exerciseCmd pending Finalize_GradeHW_Attempt with
+			signer = account1
+			comments = "Comments Version X.0"
+			ghcId = newContractid
+
+	-- 19 GradeHW, Emma
+	submitMustFail account6 do
+		exerciseCmd newContractid GradeHW with
+			p1 = [account6]
+			new_comments = "Comments Version X.0"
+
+	assert (True)		  
+
+
+

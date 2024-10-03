@@ -1,0 +1,8 @@
+Mut1 - Add Frank to HWSubmitter
+Mut2 - Remove Doug from HWEvaluator
+Mut3 - Decrease Role Cardinality of HWEvaluator from 2 to 1
+Mut4 - Add participant Doug to SubmitHW
+Mut5 - Add 'OR Bob' to SubmitHW
+Mut6 - Add HWEvaluator Role (AND) to SubmitHW
+Mut7 - Add Frank to role HWSubmitter, and remove participant Chris from the same role.
+Mut8 - Add Doug to transaction gradeHW, and remove Alice from the same transaction.
